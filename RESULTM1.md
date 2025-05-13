@@ -4,7 +4,6 @@
 
 Abaixo está uma visualização do programa em execução:
 
-![M1](screenshots/M1.png)
 
 ## Como Executar
 
