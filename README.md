@@ -10,7 +10,7 @@ Este repositório contém as implementações das atividades da disciplina de Co
 
 ### M1
 
-![M1](screenshots/M1.png)
+<img src="https://raw.githubusercontent.com/LucasMurakami/AtividadesCG-2025-1/main/screenshots/M1.png" alt="M1 Screenshot" width="30%" />
 
 ## Licença
 
