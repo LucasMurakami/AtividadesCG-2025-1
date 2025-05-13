@@ -5,6 +5,7 @@ Este repositório contém as implementações das atividades da disciplina de Co
 ## Atividades
 
 - [M1 - Criando o ambiente de Programação de cenas 3D](RESULTM1.md)
+- [M2 - Instanciando objetos na cena 3D](RESULTM2.md)
 
 ## Screenshots
 
