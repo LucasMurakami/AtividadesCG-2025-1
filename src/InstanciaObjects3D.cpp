@@ -30,7 +30,6 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 // Protótipos das funções
 int setupShader();
 int setupGeometry();
-void renderAxes();
 
 // Dimensões da janela
 const GLuint WIDTH = 1000, HEIGHT = 1000;
@@ -59,17 +58,29 @@ const GLchar *fragmentShaderSource = "#version 450\n"
                                      "}\n\0";
 
 // Variáveis para rotação, translação e escala
-bool rotateX = false, rotateY = false, rotateZ = false;
+float rotationX = 0.0f;
+float rotationY = 0.0f;
+float rotationZ = 0.0f;
+bool isRotating = false;
+float targetRotationX = 0.0f;
+float targetRotationY = 0.0f;
+float targetRotationZ = 0.0f;
+float rotationSpeed = 5.0f; // Degrees per frame
 glm::vec3 translation = glm::vec3(0.0f, 0.0f, 0.0f);
 float scale = 1.0f;
+
+float rotationAngleX = 0.0f;
+float rotationAngleY = 0.0f;
+float rotationAngleZ = 0.0f;
 
 // Variáveis para visualização
 bool wireframeMode = false;
 bool showAxes = true;
 
 // Variáveis para câmera
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraPos = glm::vec3(3.5f, 2.5f, 5.0f); // Set to give a 3/4 view
+glm::vec3 cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f); // Look at origin
+glm::vec3 cameraFront = glm::normalize(cameraTarget - cameraPos);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 float yaw = -90.0f;
 float pitch = 0.0f;
@@ -125,12 +136,12 @@ int main()
     cout << "Renderer: " << renderer << endl;
     cout << "OpenGL version supported " << version << endl;
     cout << "\n=== Controls ===\n";
-    cout << "X, Y, Z - Rotate around respective axis\n";
-    cout << "W/S, A/D, I/J - Move in Z, X, Y axes\n";
+    cout << "W/S - Rotate front face (X axis)\n";
+    cout << "A/D - Rotate side face (Y axis)\n";
+    cout << "I/J - Rotate top/bottom face (Z axis)\n";
     cout << "[/] - Scale down/up\n";
     cout << "SPACE - Add new cube instance\n";
     cout << "F - Toggle wireframe mode\n";
-    cout << "G - Toggle coordinate axes\n";
     cout << "C - Toggle camera mode (when active, use mouse to rotate camera)\n";
     cout << "R - Reset view\n";
     cout << "ESC - Exit\n";
@@ -150,7 +161,11 @@ int main()
 
     // Configuração das matrizes de transformação
     glm::mat4 model = glm::mat4(1);
-    glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+    glm::mat4 view = glm::lookAt(
+        cameraPos,                      // Position
+        glm::vec3(0.0f, 0.0f, 0.0f),   // Target (origin)
+        cameraUp                        // Up vector
+    );
     glm::mat4 projection = glm::perspective(glm::radians(fov), (float)WIDTH/(float)HEIGHT, 0.1f, 100.0f);
     
     GLint modelLoc = glGetUniformLocation(shaderID, "model");
@@ -173,7 +188,7 @@ int main()
         glfwPollEvents();
 
         // Limpa o buffer de cor
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f); // cor de fundo mais escura para melhorar visualização
+        glClearColor(0.95f, 0.95f, 0.95f, 1.0f); 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Atualiza a matriz de visão da câmera
@@ -191,9 +206,42 @@ int main()
         glLineWidth(2);
         glPointSize(8);
 
-        // Renderiza os eixos de coordenadas
-        if (showAxes) {
-            renderAxes();
+        // Handle rotation animation
+        if (isRotating) {
+            // X rotation
+            if (rotationX != targetRotationX) {
+                float step = rotationSpeed;
+                if (rotationX < targetRotationX) {
+                    rotationX = min(rotationX + step, targetRotationX);
+                } else {
+                    rotationX = max(rotationX - step, targetRotationX);
+                }
+            }
+            
+            // Y rotation
+            if (rotationY != targetRotationY) {
+                float step = rotationSpeed;
+                if (rotationY < targetRotationY) {
+                    rotationY = min(rotationY + step, targetRotationY);
+                } else {
+                    rotationY = max(rotationY - step, targetRotationY);
+                }
+            }
+            
+            // Z rotation
+            if (rotationZ != targetRotationZ) {
+                float step = rotationSpeed;
+                if (rotationZ < targetRotationZ) {
+                    rotationZ = min(rotationZ + step, targetRotationZ);
+                } else {
+                    rotationZ = max(rotationZ - step, targetRotationZ);
+                }
+            }
+            
+            // Check if rotation is complete
+            if (rotationX == targetRotationX && rotationY == targetRotationY && rotationZ == targetRotationZ) {
+                isRotating = false;
+            }
         }
 
         // Para cada instância
@@ -205,26 +253,21 @@ int main()
             // Aplica a translação da instância
             model = glm::translate(model, instancePositions[i]);
             
-            // Rotação
-            float angle = (GLfloat)glfwGetTime();
-            if (rotateX)
-            {
-                model = glm::rotate(model, angle, glm::vec3(1.0f, 0.0f, 0.0f));
-            }
-            else if (rotateY)
-            {
-                model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-            }
-            else if (rotateZ)
-            {
-                model = glm::rotate(model, angle, glm::vec3(0.0f, 0.0f, 1.0f));
-            }
+            // Apply fixed rotations
+            model = glm::rotate(model, glm::radians(rotationX), glm::vec3(1.0f, 0.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(rotationY), glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(rotationZ), glm::vec3(0.0f, 0.0f, 1.0f));
             
-            // Translação
+            // Aplicar translação local
             model = glm::translate(model, translation);
             
             // Escala
             model = glm::scale(model, glm::vec3(scale));
+            
+            // Add slight rotation to add 2.5D effect
+            model = glm::rotate(model, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
             
             // Passa a matriz para o shader
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
@@ -240,6 +283,22 @@ int main()
             glBindVertexArray(0);
         }
 
+        // In the render loop, before drawing the cube:
+        // Add a subtle outline for 2.5D effect
+        if (!wireframeMode) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glLineWidth(1.0f);
+            glUniform4f(glGetUniformLocation(shaderID, "outlineColor"), 0.0f, 0.0f, 0.0f, 1.0f);
+            
+            // Draw the outlines
+            glBindVertexArray(VAO);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+            glBindVertexArray(0);
+            
+            // Reset to fill mode
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+
         // Troca os buffers da tela
         glfwSwapBuffers(window);
     }
@@ -250,106 +309,44 @@ int main()
     return 0;
 }
 
-void renderAxes() {
-    // Pontos para representar eixos X (vermelho), Y (verde), e Z (azul)
-    static const GLfloat axesVertices[] = {
-        // X axis (red)
-        0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-        5.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-        
-        // Y axis (green)
-        0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 5.0f, 0.0f, 0.0f, 1.0f, 0.0f,
-        
-        // Z axis (blue)
-        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-        0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 1.0f
-    };
-
-    // Criar e configurar VAO e VBO para os eixos
-    static GLuint axesVAO = 0, axesVBO;
-    
-    if (axesVAO == 0) {
-        glGenVertexArrays(1, &axesVAO);
-        glGenBuffers(1, &axesVBO);
-        
-        glBindVertexArray(axesVAO);
-        
-        glBindBuffer(GL_ARRAY_BUFFER, axesVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(axesVertices), axesVertices, GL_STATIC_DRAW);
-        
-        // Atributo posição (x, y, z)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid *)0);
-        glEnableVertexAttribArray(0);
-        
-        // Atributo cor (r, g, b)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid *)(3 * sizeof(GLfloat)));
-        glEnableVertexAttribArray(1);
-    }
-    
-    // Salva o estado anterior
-    GLboolean previousLineState;
-    glGetBooleanv(GL_LINE_SMOOTH, &previousLineState);
-    
-    // Configurar para desenhar linhas
-    glEnable(GL_LINE_SMOOTH);
-    glLineWidth(3.0f);
-    
-    // Desenhar eixos
-    glBindVertexArray(axesVAO);
-    glDrawArrays(GL_LINES, 0, 6);
-    glBindVertexArray(0);
-    
-    // Restaura estado anterior
-    if (!previousLineState)
-        glDisable(GL_LINE_SMOOTH);
-}
-
 // Função de callback de teclado
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
 
-    // Rotações
-    if (key == GLFW_KEY_X && action == GLFW_PRESS)
-    {
-        rotateX = !rotateX;
-        rotateY = false;
-        rotateZ = false;
+    // Only process rotation if we're not already rotating
+    if (!isRotating && action == GLFW_PRESS) {
+        // Front face rotation (W/S)
+        if (key == GLFW_KEY_W) {
+            targetRotationX = rotationX - 90.0f;
+            isRotating = true;
+        }
+        if (key == GLFW_KEY_S) {
+            targetRotationX = rotationX + 90.0f;
+            isRotating = true;
+        }
+        
+        // Side face rotation (A/D)
+        if (key == GLFW_KEY_A) {
+            targetRotationY = rotationY - 90.0f;
+            isRotating = true;
+        }
+        if (key == GLFW_KEY_D) {
+            targetRotationY = rotationY + 90.0f;
+            isRotating = true;
+        }
+        
+        // Top/Bottom face rotation (I/J)
+        if (key == GLFW_KEY_I) {
+            targetRotationZ = rotationZ + 90.0f;
+            isRotating = true;
+        }
+        if (key == GLFW_KEY_J) {
+            targetRotationZ = rotationZ - 90.0f;
+            isRotating = true;
+        }
     }
-
-    if (key == GLFW_KEY_Y && action == GLFW_PRESS)
-    {
-        rotateX = false;
-        rotateY = !rotateY;
-        rotateZ = false;
-    }
-
-    if (key == GLFW_KEY_Z && action == GLFW_PRESS)
-    {
-        rotateX = false;
-        rotateY = false;
-        rotateZ = !rotateZ;
-    }
-
-    // Translação no eixo X (A/D)
-    if (key == GLFW_KEY_A && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.x -= 0.1f;
-    if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.x += 0.1f;
-
-    // Translação no eixo Y (I/J)
-    if (key == GLFW_KEY_I && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.y += 0.1f;
-    if (key == GLFW_KEY_J && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.y -= 0.1f;
-
-    // Translação no eixo Z (W/S)
-    if (key == GLFW_KEY_W && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.z -= 0.1f;
-    if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT))
-        translation.z += 0.1f;
 
     // Escala ([ / ])
     if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT))
@@ -360,10 +357,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     // Toggle wireframe mode (F)
     if (key == GLFW_KEY_F && action == GLFW_PRESS)
         wireframeMode = !wireframeMode;
-        
-    // Toggle axis display (G)
-    if (key == GLFW_KEY_G && action == GLFW_PRESS)
-        showAxes = !showAxes;
         
     // Toggle camera mode (C)
     if (key == GLFW_KEY_C && action == GLFW_PRESS)
@@ -380,7 +373,9 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     {
         translation = glm::vec3(0.0f);
         scale = 1.0f;
-        rotateX = rotateY = rotateZ = false;
+        rotationX = rotationY = rotationZ = 0.0f;
+        targetRotationX = targetRotationY = targetRotationZ = 0.0f;
+        isRotating = false;
         cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
         cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
         cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -431,11 +426,17 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     yaw += xoffset;
     pitch += yoffset;
 
-    // Limita o pitch para evitar que a câmera vire de cabeça para baixo
-    if (pitch > 89.0f)
-        pitch = 89.0f;
-    if (pitch < -89.0f)
-        pitch = -89.0f;
+    // Limit the pitch more strictly for 2.5D feel
+    if (pitch > 45.0f)
+        pitch = 45.0f;
+    if (pitch < 15.0f)
+        pitch = 15.0f;
+    
+    // Limit yaw to maintain 2.5D perspective
+    if (yaw > -45.0f)
+        yaw = -45.0f;
+    if (yaw < -135.0f)
+        yaw = -135.0f;
 
     // Calcula o vetor de direção da câmera
     glm::vec3 front;
@@ -512,60 +513,59 @@ int setupGeometry()
     // Vértices do cubo com cores diferentes para cada face (8 vértices * 6 faces)
     // Formato: x, y, z, r, g, b (posição e cor)
     GLfloat vertices[] = {
-        // Face frontal (vermelha)
-        // x    y    z    r    g    b
-        -0.5, -0.5,  0.5, 1.0, 0.0, 0.0, // 0
-         0.5, -0.5,  0.5, 1.0, 0.0, 0.0, // 1
-         0.5,  0.5,  0.5, 1.0, 0.0, 0.0, // 2
+        // Face frontal (vermelho mais suave)
+        -0.5, -0.5,  0.5, 0.9f, 0.2f, 0.2f,
+         0.5, -0.5,  0.5, 0.9f, 0.2f, 0.2f,
+         0.5,  0.5,  0.5, 0.9f, 0.2f, 0.2f,
         
-        -0.5, -0.5,  0.5, 1.0, 0.0, 0.0, // 0
-         0.5,  0.5,  0.5, 1.0, 0.0, 0.0, // 2
-        -0.5,  0.5,  0.5, 1.0, 0.0, 0.0, // 3
+        -0.5, -0.5,  0.5, 0.9f, 0.2f, 0.2f,
+         0.5,  0.5,  0.5, 0.9f, 0.2f, 0.2f,
+        -0.5,  0.5,  0.5, 0.9f, 0.2f, 0.2f,
         
-        // Face traseira (verde)
-        -0.5, -0.5, -0.5, 0.0, 1.0, 0.0, // 4
-        -0.5,  0.5, -0.5, 0.0, 1.0, 0.0, // 7
-         0.5,  0.5, -0.5, 0.0, 1.0, 0.0, // 6
+        // Face traseira (verde mais suave)
+        -0.5, -0.5, -0.5, 0.2f, 0.8f, 0.2f,
+        -0.5,  0.5, -0.5, 0.2f, 0.8f, 0.2f,
+         0.5,  0.5, -0.5, 0.2f, 0.8f, 0.2f,
         
-        -0.5, -0.5, -0.5, 0.0, 1.0, 0.0, // 4
-         0.5,  0.5, -0.5, 0.0, 1.0, 0.0, // 6
-         0.5, -0.5, -0.5, 0.0, 1.0, 0.0, // 5
+        -0.5, -0.5, -0.5, 0.2f, 0.8f, 0.2f,
+         0.5,  0.5, -0.5, 0.2f, 0.8f, 0.2f,
+         0.5, -0.5, -0.5, 0.2f, 0.8f, 0.2f,
         
-        // Face superior (azul)
-        -0.5,  0.5, -0.5, 0.0, 0.0, 1.0, // 7
-        -0.5,  0.5,  0.5, 0.0, 0.0, 1.0, // 3
-         0.5,  0.5,  0.5, 0.0, 0.0, 1.0, // 2
+        // Face superior (azul mais suave)
+        -0.5,  0.5, -0.5, 0.3f, 0.3f, 0.9f,
+        -0.5,  0.5,  0.5, 0.3f, 0.3f, 0.9f,
+         0.5,  0.5,  0.5, 0.3f, 0.3f, 0.9f,
         
-        -0.5,  0.5, -0.5, 0.0, 0.0, 1.0, // 7
-         0.5,  0.5,  0.5, 0.0, 0.0, 1.0, // 2
-         0.5,  0.5, -0.5, 0.0, 0.0, 1.0, // 6
+        -0.5,  0.5, -0.5, 0.3f, 0.3f, 0.9f,
+         0.5,  0.5,  0.5, 0.3f, 0.3f, 0.9f,
+         0.5,  0.5, -0.5, 0.3f, 0.3f, 0.9f,
         
-        // Face inferior (amarela)
-        -0.5, -0.5, -0.5, 1.0, 1.0, 0.0, // 4
-         0.5, -0.5, -0.5, 1.0, 1.0, 0.0, // 5
-         0.5, -0.5,  0.5, 1.0, 1.0, 0.0, // 1
+        // Face inferior (amarelo mais suave)
+        -0.5, -0.5, -0.5, 0.9f, 0.9f, 0.2f,
+         0.5, -0.5, -0.5, 0.9f, 0.9f, 0.2f,
+         0.5, -0.5,  0.5, 0.9f, 0.9f, 0.2f,
         
-        -0.5, -0.5, -0.5, 1.0, 1.0, 0.0, // 4
-         0.5, -0.5,  0.5, 1.0, 1.0, 0.0, // 1
-        -0.5, -0.5,  0.5, 1.0, 1.0, 0.0, // 0
+        -0.5, -0.5, -0.5, 0.9f, 0.9f, 0.2f,
+         0.5, -0.5,  0.5, 0.9f, 0.9f, 0.2f,
+        -0.5, -0.5,  0.5, 0.9f, 0.9f, 0.2f,
         
-        // Face direita (magenta)
-         0.5, -0.5, -0.5, 1.0, 0.0, 1.0, // 5
-         0.5,  0.5, -0.5, 1.0, 0.0, 1.0, // 6
-         0.5,  0.5,  0.5, 1.0, 0.0, 1.0, // 2
+        // Face direita (magenta mais suave)
+         0.5, -0.5, -0.5, 0.9f, 0.2f, 0.9f,
+         0.5,  0.5, -0.5, 0.9f, 0.2f, 0.9f,
+         0.5,  0.5,  0.5, 0.9f, 0.2f, 0.9f,
         
-         0.5, -0.5, -0.5, 1.0, 0.0, 1.0, // 5
-         0.5,  0.5,  0.5, 1.0, 0.0, 1.0, // 2
-         0.5, -0.5,  0.5, 1.0, 0.0, 1.0, // 1
+         0.5, -0.5, -0.5, 0.9f, 0.2f, 0.9f,
+         0.5,  0.5,  0.5, 0.9f, 0.2f, 0.9f,
+         0.5, -0.5,  0.5, 0.9f, 0.2f, 0.9f,
         
-        // Face esquerda (ciano)
-        -0.5, -0.5, -0.5, 0.0, 1.0, 1.0, // 4
-        -0.5, -0.5,  0.5, 0.0, 1.0, 1.0, // 0
-        -0.5,  0.5,  0.5, 0.0, 1.0, 1.0, // 3
+        // Face esquerda (ciano mais suave)
+        -0.5, -0.5, -0.5, 0.2f, 0.9f, 0.9f,
+        -0.5, -0.5,  0.5, 0.2f, 0.9f, 0.9f,
+        -0.5,  0.5,  0.5, 0.2f, 0.9f, 0.9f,
         
-        -0.5, -0.5, -0.5, 0.0, 1.0, 1.0, // 4
-        -0.5,  0.5,  0.5, 0.0, 1.0, 1.0, // 3
-        -0.5,  0.5, -0.5, 0.0, 1.0, 1.0, // 7
+        -0.5, -0.5, -0.5, 0.2f, 0.9f, 0.9f,
+        -0.5,  0.5,  0.5, 0.2f, 0.9f, 0.9f,
+        -0.5,  0.5, -0.5, 0.2f, 0.9f, 0.9f,
     };
 
     GLuint VBO, VAO;
